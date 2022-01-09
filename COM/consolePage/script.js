@@ -1,65 +1,88 @@
-var data = false
+var rootDiv, iframesDiv, lastDataString = "", latestData, readedCommands = []
+var checkForChangesPerSecond = 20
+var offlineCheckForChangesPerSecond = 1
+var readedString = "Readed_"
+
 function onLoad() {
-    document.getElementById("root").innerHTML = ""
-    if (data) {
-        stopLoop = false
-        for (var i = 0; i < data.length; i++) {
-            drawData(document.getElementById("root"), data[i], false)
-        }
-    }
-    else {
-        document.getElementById("dataJS").innerHTML = ""
-        var script = document.createElement("script")
-        script.src="/console/data.js"
-        stopLoop = true
-        script.onload = ()=>{stopLoop = false;onLoad()}
-        document.getElementById("dataJS").appendChild(script)
-    }
-    //commandsLoop()
-    doLoop(true, 250)
+    rootDiv = document.getElementById("root")
+    iframesDiv = document.getElementById("iframes")
+    checkForChanges()
+    commandTemplates["console.reload()"]("console.reload()", -1)
 }
 
-function reloadPage() {
-    //document.location.reload()
-    data = false
-    onLoad()
-}
-
-var commandTemplates = {
-    "document.location.reload()": reloadPage
-}
-
-var stopLoop = true
-
-function doLoop(canDoLoop, delay) {
-    commandsLoop()
-    canDoLoop = !stopLoop
-    if (canDoLoop) {
-        setTimeout(() => {
-            doLoop(canDoLoop, delay)
-        }, delay)
+function buildHTMLContent(html_data) {
+    rootDiv.innerHTML = ""
+    for (var data of html_data) {
+        drawData(rootDiv, data, false)
     }
 }
 
-function commandsLoop() {
-    document.getElementById("commands").innerHTML = ""
-    var script = document.createElement("script")
-    script.src="/console/commands.js"
-    document.getElementById("commands").appendChild(script)
-}
-
-function readTextFile(url, useMy1) {
-    var rawFile = new XMLHttpRequest();
-    rawFile.open("GET", url, true);
-    rawFile.onreadystatechange = function () {
-        if (rawFile.readyState === 4) {
-            var allText = rawFile.responseText;
-            if (useMy1) {
-                parseCommands(allText)
+function processCommands(commands) {
+    for (var i in commands) {
+        var command = commands[i]
+        if (!readedCommands.includes(command)) {
+            var isTemplate = false
+            for (var commandTemplate of Object.keys(commandTemplates)) {
+                if (command.search(commandTemplate) > -1) {
+                    isTemplate = true
+                    readedCommands.push(command)
+                    commandTemplates[commandTemplate](command, i)// command.replace(commandTemplate, "")
+                    break
+                }
+            }
+            if (!isTemplate) {
+                readedCommands.push(command)
+                onReceive(command)
             }
         }
     }
-    rawFile.send();
+    while (readedCommands.length > 0) {
+        var readedCommand = readedCommands.shift()
+        send(readedString + readedCommand, (readedCommand) => {
+            // console.log("Readed command:", readedCommand)
+        })
+    }
+}
+
+function checkForChanges() {
+    var [responseJSON, status] = getJSON(document.location.origin + "/console/data.json")
+    if (status === 200) {
+        latestData = responseJSON
+        var latestDataString = JSON.stringify(latestData)
+        if (lastDataString !== latestDataString) {
+            lastDataString = latestDataString
+            processCommands(latestData.commands)
+        }
+        setTimeout(checkForChanges, 1000 / checkForChangesPerSecond)
+    } else {
+        console.log("Something went wrong with data response status, may be 200, but is", status)
+        setTimeout(checkForChanges, 1000 / offlineCheckForChangesPerSecond)
+    }
+}
+
+var commandTemplates = {
+    "document.location.reload()": (command, i) => {
+        document.location.reload()
+    },
+    "console.reload()": (command, i) => {
+        buildHTMLContent(latestData.html_data)
+    }
+}
+
+function readTextFile(url) {
+    var http = new XMLHttpRequest();
+    http.open("GET", url, false);
+    try {
+        http.send();
+    } catch (e) {
+
+    }
+    return [http.responseText, http.status]
+}
+
+function getJSON(url) {
+    var [responseText, status] = readTextFile(url)
+    return [status === 200 ? JSON.parse(responseText) : {}, status]
 }
 
 function drawData(target, thingData, appendToAppending) {
@@ -129,7 +152,7 @@ function drawData(target, thingData, appendToAppending) {
             button = document.createElement("button")
             button.innerHTML = thingData.buttonText
             button.onclick = function () {
-                send(thingData.firstPart+document.getElementById(thingData.id).value)
+                send(thingData.firstPart + document.getElementById(thingData.id).value)
             }
             div.appendChild(input)
             div.appendChild(button)
@@ -144,25 +167,31 @@ function drawData(target, thingData, appendToAppending) {
     }
 }
 
-var canSend = true
-function send(text) {
-    if (canSend) {
-        //console.log("Sending text: ", text)
-        //document.location.href = "/console/send?text=" + text
-        var ifr = document.createElement("iframe")
-        ifr.src = "/console/send?text=" + text
-        document.getElementById("iframe").innerHTML = ""
-        document.getElementById("iframe").appendChild(ifr)
-        stopLoop = true
-        canSend = false
-        setTimeout(()=>{canSend = true}, 200)
-        reloadPage()
+function send(text, onSend) {
+    /*//console.log("Sending text: ", text)
+    //document.location.href = "/console/send?text=" + text
+    var ifr = document.createElement("iframe")
+    ifr.src = "/console/send?text=" + text
+    document.getElementById("iframe").innerHTML = ""
+    document.getElementById("iframe").appendChild(ifr)
+    stopLoop = true
+    canSend = false
+    document.getElementById("iframe").onload = () => {
+        canSend = true
+        stopLoop = false
     }
+    reloadPage()*/
+    var ifr = document.createElement("iframe")
+    ifr.src = "/console/send?text=" + text
+    typeof onSend === "function" && (ifr.onload = () => {
+        iframesDiv.removeChild(ifr)
+        text.search(readedString) === 0 ? onSend(text.slice(readedString.length)) : onSend()
+    })
+    iframesDiv.appendChild(ifr)
 }
 
 function onReceive(text) {
     console.log("Received text: ", text)
-
 }
 
 var errors = []

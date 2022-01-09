@@ -1,8 +1,7 @@
 from .cgiserver import runServer, getMimeType
-import logging as log
 from .htmlhelpers import fileRead
-#from .data import dataa
-import threading, os
+import threading, os, json
+
 
 class Communication:
     def __init__(self, data, port):
@@ -12,18 +11,16 @@ class Communication:
         self.runThread = threading.Thread(target=self.__Run, args=())
         self.commands = []
         self.thisPath = os.path.dirname(os.path.abspath(__file__)) + os.sep
+        self.readedString = "Readed_"
 
     def __Run(self):
         runServer(self.port, {
             "": self.__home,
             "/": self.__home,
-            # 'json': processJSONRequest,
-            # 'button': processButton
             "console": self.__console,
-            "console/data.js": self.__dataJS,
-            "console/send": self.consoleSend,
+            "console/data.json": self.__dataJSON,
+            "console/send": self.__consoleSend,
             "console/script.js": self.__scriptJS,
-            "console/commands.js": self.__commands,
             "console/w3schools.css": self.__w3schoolsCSS
         })
 
@@ -31,53 +28,43 @@ class Communication:
         s = ''
         for key, value in request.query.items():
             s += f'{key}:{value}<br>'
-        response.buildResult('<h2>Params:</h2>' + s + "<br><a href='console'>Console</a><script>document.title = 'Server'</script>")
-
+        response.buildResult(
+            '<h2>Params:</h2>' + s + "<br><a href='console'>Console</a><script>document.title = 'Server'</script>")
 
     def __console(self, request, response):
-        response.buildResult(fileRead(self.thisPath+'consolePage/console.html'))
+        response.buildResult(fileRead(self.thisPath + 'consolePage/console.html'))
 
-
-    def __dataJS(self, request, response):
-        response.buildResult("var data = " + str(self.data), getMimeType("data.js"))
+    def __dataJSON(self, request, response):
+        response.buildResult(json.dumps({"html_data": self.data, "commands": self.commands}), 'application/json')
 
     def __scriptJS(self, request, response):
-        response.buildResult(fileRead(self.thisPath+'consolePage/script.js'), getMimeType("script.js"))
+        response.buildResult(fileRead(self.thisPath + 'consolePage/script.js'), getMimeType("script.js"))
 
     def __w3schoolsCSS(self, request, response):
-        response.buildResult(fileRead(self.thisPath+'consolePage/w3schools.css'), getMimeType("w3schools.css"))
+        response.buildResult(fileRead(self.thisPath + 'consolePage/w3schools.css'), getMimeType("w3schools.css"))
 
-    def __commands(self, request, response):
-        result = "var commands = []"
-        if len(self.commands) > 0:
-            #result = "var commands = " + str(self.commands)
-            result = "send('Readed_0')"
-        response.buildResult(result, getMimeType("commands.js"))
-
-    def consoleSend(self, request, response):
+    def __consoleSend(self, request, response):
         text = request.query["text"]
 
-        if text.find("Readed_") > -1 and len(self.commands) > 0:
-            #print(int(text.replace("Readed_", "")))
-            del self.commands[int(text.replace("Readed_", ""))]
+        if text.find(self.readedString) == 0 and len(self.commands) > 0:
+            del self.commands[self.commands.index(text[len(self.readedString):])]
+        else:
+            self.__onReceive(text)
 
-        response.buildResult(fileRead(self.thisPath+'consolePage/consoleSend.html'), getMimeType("consoleSend.html"))
-        self.__onReceive(text)
+        response.buildResult(fileRead(self.thisPath + 'consolePage/consoleSend.html'), getMimeType("consoleSend.html"))
 
     def __onReceive(self, text):
-        #print("Receiving text: "+text)
         self.onReceive(text)
 
     def onReceive(self, text):
         pass
 
-    def __send(self, text):
-        #print("Sending text: "+text)
-        self.commands.append(text)
+    def send(self, text):
+        if not self.commands.__contains__(text):
+            self.commands.append(text)
 
     def reloadConsole(self):
-        if not self.commands.__contains__("document.location.reload()"):
-            self.__send("document.location.reload()")
+        self.send("console.reload()")
 
     def run(self):
         if not self.__isServerRunning:
@@ -85,3 +72,4 @@ class Communication:
             self.runThread.start()
         else:
             print(f"Server is already running at port {self.port}, url is: http://localhost:{self.port}/")
+

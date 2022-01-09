@@ -3,8 +3,8 @@ __author__ = "radek.augustyn@email.cz"
 
 import datetime
 import urllib, codecs, web, os
+#package web is named web.py, not web
 
-#import pygeotoolbox.sharedtools.log as log
 from .htmlhelpers import replaceHTMLTags, getFileExtension, getFileContent
 import logging as log
 
